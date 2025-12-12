@@ -9,8 +9,11 @@ import (
 	"strings"
 	"os"
 	"database/sql"
+	"context"
 	"github.com/arglp/chirpy/internal/database"
-	
+	"time"
+
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -18,6 +21,14 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries *database.Queries
+	platform string	
+
+}
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -39,10 +50,39 @@ func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
 }
 
 func (cfg *apiConfig) handlerReset(w http.ResponseWriter, req *http.Request) {
+	if cfg.platform != "dev" {
+		respondWithError(w, 403, "This action is forbidden")
+		return
+	}
+	err := cfg.dbQueries.DeleteUsers(context.Background())
+	if err != nil {
+		respondWithError (w, 403, "Couldn't dele users")
+		return
+	}
+
 	cfg.fileserverHits.Store(0)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK\n"))
+}
+
+func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email	 string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 400, "Something went wrong")
+		return
+	}
+	user, err := cfg.dbQueries.CreateUser(context.Background(), params.Email)
+	if err != nil {
+		respondWithError(w, 400, "Couldn*t create user")
+	}
+	respondWithJson(w, 201, User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email})
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -92,6 +132,7 @@ func main () {
 	var apiCfg apiConfig
 	apiCfg.fileserverHits.Store(0)
 	apiCfg.dbQueries = database.New(db)
+	apiCfg.platform = os.Getenv("PLATFORM")
 
 	sMux := http.NewServeMux()
 	s := http.Server{}
@@ -108,6 +149,7 @@ func main () {
 
 	sMux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	sMux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
+	sMux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
 
 	sMux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
@@ -129,6 +171,8 @@ func main () {
 		}
 		respondWithJson(w, 200, cleanedBody{CleanedBody: replaceProfaneWords(params.Body),})
 	})
+
+
 
 	err = s.ListenAndServe()
 	if err != nil {
