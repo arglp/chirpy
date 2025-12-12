@@ -6,10 +6,18 @@ import (
 	"sync/atomic"
 	"fmt"
 	"encoding/json"
+	"strings"
+	"os"
+	"database/sql"
+	"github.com/arglp/chirpy/internal/database"
+	
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -37,9 +45,53 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("OK\n"))
 }
 
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	type errorResponse struct {
+		ErrorMessage string `json:"error"`
+	}
+	respError := errorResponse{
+		ErrorMessage: msg,
+	}
+	respondWithJson(w, code, respError)
+}
+
+func respondWithJson(w http.ResponseWriter, code int, payload interface{}) {
+	dat, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshalling JSON: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(dat)
+}
+
+func replaceProfaneWords(text string) string {
+	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
+	replacer := "****"
+	words := strings.Split(text, " ")
+	for i, word := range words {
+		for _, profaneWord := range profaneWords{
+			if strings.ToLower(word) == profaneWord{
+				words[i] = replacer
+			}
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func main () {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatal("fatal error: ", err)
+	}
+
 	var apiCfg apiConfig
 	apiCfg.fileserverHits.Store(0)
+	apiCfg.dbQueries = database.New(db)
 
 	sMux := http.NewServeMux()
 	s := http.Server{}
@@ -58,62 +110,27 @@ func main () {
 	sMux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 
 	sMux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
-
 		type parameters struct {
 			Body string `json:"body"`
 		}
-		type errorResponse struct {
-			ErrorMessage string `json:"error"`
+		type cleanedBody struct {
+			CleanedBody string `json:"cleaned_body"`
 		}
-		type validResponse struct {
-			Valid bool `json:"valid"`
-		}
-
 		decoder := json.NewDecoder(r.Body)
 		params := parameters{}
 		err := decoder.Decode(&params)
-		respError := errorResponse{}
-
 		if err != nil {
-			respError.ErrorMessage = "Something went wrong"
-			dat, err := json.Marshal(respError)
-			if err != nil {
-				log.Printf("Error marshalling JSON: %s", err)
-				w.WriteHeader(500)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(400)
-			w.Write(dat)
+			respondWithError(w, 400, "Something went wrong")
 			return
-			}
-
+		}
 		if len(params.Body) > 140 {
-			respError.ErrorMessage = "Chirp is too long"
-			dat, err := json.Marshal(respError)
-			if err != nil {
-				log.Printf("Error marshalling JSON: %s", err)
-				w.WriteHeader(500)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(400)
-			w.Write(dat)
+			respondWithError(w, 400, "Chirp is too long")
 			return
 		}
-
-		dat, err := json.Marshal(validResponse{Valid: true})
-		if err != nil {
-			log.Printf("Error marshalling JSON: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write(dat)
+		respondWithJson(w, 200, cleanedBody{CleanedBody: replaceProfaneWords(params.Body),})
 	})
 
-	err := s.ListenAndServe()
+	err = s.ListenAndServe()
 	if err != nil {
 		log.Fatal("fatal error:", err)
 	}
