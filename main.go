@@ -31,6 +31,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body		string `json:"body"`
+	UserID	uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
@@ -83,6 +91,42 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "Couldn*t create user")
 	}
 	respondWithJson(w, 201, User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email})
+}
+
+func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 400, "Something went wrong")
+		return
+	}
+	if len(params.Body) > 140 {
+		respondWithError(w, 400, "Chirp is too long")
+		return
+	}
+
+	chirp, err := cfg.dbQueries.CreateChirp(context.Background(), database.CreateChirpParams{
+		Body: replaceProfaneWords(params.Body),
+		UserID: params.UserID})
+
+	if err != nil {
+		respondWithError(w, 400, "Coudn't create chirp")
+		return
+	}
+	respondWithJson(w, 201, Chirp{
+		ID: chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:	chirp.Body,
+		UserID: chirp.UserID,
+	})	
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -151,26 +195,7 @@ func main () {
 	sMux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 	sMux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
 
-	sMux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
-		type parameters struct {
-			Body string `json:"body"`
-		}
-		type cleanedBody struct {
-			CleanedBody string `json:"cleaned_body"`
-		}
-		decoder := json.NewDecoder(r.Body)
-		params := parameters{}
-		err := decoder.Decode(&params)
-		if err != nil {
-			respondWithError(w, 400, "Something went wrong")
-			return
-		}
-		if len(params.Body) > 140 {
-			respondWithError(w, 400, "Chirp is too long")
-			return
-		}
-		respondWithJson(w, 200, cleanedBody{CleanedBody: replaceProfaneWords(params.Body),})
-	})
+	sMux.HandleFunc("POST /api/chirps", apiCfg.handlerChirps)
 
 
 
