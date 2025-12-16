@@ -18,7 +18,19 @@ type Chirp struct {
 	UserID	uuid.UUID `json:"user_id"`
 }
 
-func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
+func transcribeChirp(dC database.Chirp) Chirp {
+	return Chirp{
+		ID:	dC.ID,
+		CreatedAt: dC.CreatedAt,
+		UpdatedAt: dC.UpdatedAt,
+		Body: dC.Body,
+		UserID: dC.UserID,
+	}
+}
+
+
+
+func (cfg *apiConfig) handlerPostChirps(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Body string `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
@@ -45,11 +57,36 @@ func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "Coudn't create chirp")
 		return
 	}
-	respondWithJson(w, 201, Chirp{
-		ID: chirp.ID,
-		CreatedAt: chirp.CreatedAt,
-		UpdatedAt: chirp.UpdatedAt,
-		Body:	chirp.Body,
-		UserID: chirp.UserID,
-	})	
+	respondWithJson(w, 201, transcribeChirp(chirp))	
+}
+
+func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	
+	results, err := cfg.dbQueries.GetChirps(context.Background())
+	if err != nil {
+		respondWithError(w, 400, "Something went wrong")
+		return
+	}
+	var chirps []Chirp
+
+	for _, result := range results {
+		chirps = append(chirps, transcribeChirp(result))
+	}
+	respondWithJson(w, 200, chirps)	
+}
+
+func (cfg *apiConfig) handlerGetChirpByID(w http.ResponseWriter, r *http.Request) {
+	
+	chirpID, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, 400, "Something went wrong")
+	}
+	
+	chirp, err := cfg.dbQueries.GetChirp(context.Background(), chirpID)
+	if err != nil {
+		respondWithError(w, 404, "couldn't find chirp")
+		return
+	}
+
+	respondWithJson(w, 200, transcribeChirp(chirp))	
 }

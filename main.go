@@ -41,7 +41,11 @@ func main () {
 	sMux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	sMux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 	sMux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
-	sMux.HandleFunc("POST /api/chirps", apiCfg.handlerChirps)
+	sMux.HandleFunc("POST /api/chirps", apiCfg.handlerPostChirps)
+	sMux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
+	sMux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirpByID)
+	sMux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
+
 	err = s.ListenAndServe()
 	if err != nil {
 		log.Fatal("fatal error:", err)
