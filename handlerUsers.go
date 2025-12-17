@@ -16,6 +16,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token 	  string	`json:"token"`
 }
 
 func transcribeUser(dU database.User) User {
@@ -62,7 +63,10 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Password string `json:"password"`
 		Email	 string `json:"email"`
+		ExpiresInSeconds int64 `json:"expires_in_seconds"`
 	}
+
+
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -71,12 +75,20 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	expiresIn := time.Duration(params.ExpiresInSeconds) * time.Second
+	if expiresIn > time.Hour {
+		expiresIn = time.Hour
+	}
+	if expiresIn == 0 {
+		expiresIn = time.Hour
+	}
+
 	user, err := cfg.dbQueries.GetUser(context.Background(), params.Email)
 	if err != nil {
 		respondWithError(w, 401, "Incorrect email or password")
 		return
 	}
-	ok, err := auth.ChekPasswordHash(params.Password, user.HashedPassword)
+	ok, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
 	if err != nil {
 		respondWithError(w, 401, "Couldn't check password")
 		return
@@ -85,5 +97,15 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 401, "Incorrect email or password")
 		return
 	}
-	respondWithJson(w, 200, transcribeUser(user))
+
+	tokenString, err := auth.MakeJWT(user.ID, cfg.secret, time.Duration(expiresIn))
+	if err != nil {
+		respondWithError(w, 401, "Couldn't make JWT")
+	}
+	
+	jsonUser := transcribeUser(user)
+	jsonUser.Token = tokenString
+
+
+	respondWithJson(w, 200, jsonUser)
 }

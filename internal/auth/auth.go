@@ -2,6 +2,9 @@ package auth
 
 import(
 	"time"
+	"errors"
+	"strings"
+	"net/http"
 	"github.com/google/uuid"
 	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
@@ -15,7 +18,7 @@ func HashPassword(password string) (string, error) {
 	return hashedPassword, nil
 }
 
-func ChekPasswordHash(password, hash string) (bool, error) {
+func CheckPasswordHash(password, hash string) (bool, error) {
 	value, err := argon2id.ComparePasswordAndHash(password, hash)
 	if err != nil {
 		return false, err
@@ -45,13 +48,33 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	if err != nil {
 		return uuid.UUID{}, err
 	}
-	idStr, err := token.Claims.GetSubject()
-	if err != nil {
-		return uuid.UUID{}, err
+
+	if !token.Valid {
+		return uuid.UUID{}, errors.New("invalid token")
 	}
+
+	claims, ok := token.Claims.(*jwt.RegisteredClaims)
+	if !ok {
+		return uuid.UUID{}, errors.New("couldn't get claims")
+	}
+	
+	idStr := claims.Subject
+
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
 	return id, nil	
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	auth := headers.Get("Authorization")
+	if auth == "" {
+		return "", errors.New("authorization header not found")
+	}
+	token, ok := strings.CutPrefix(auth, "Bearer ")
+	if !ok {
+		return "", errors.New("couldn't find prefix")
+	}
+	return token, nil
 }

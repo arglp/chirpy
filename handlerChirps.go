@@ -1,11 +1,12 @@
 package main
 
-import(
-	"time"
+import (
+	"context"
 	"encoding/json"
 	"net/http"
-	"context"
+	"time"
 
+	"github.com/arglp/chirpy/internal/auth"
 	"github.com/arglp/chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -33,17 +34,29 @@ func transcribeChirp(dC database.Chirp) Chirp {
 func (cfg *apiConfig) handlerPostChirps(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
 	}
 
+	token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, 400, "Something went wrong")
+			return
+		}
+
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, 401, "unauthorized")
+		return
+	}
+	
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, 400, "Something went wrong")
 		return
 	}
+	
 	if len(params.Body) > 140 {
 		respondWithError(w, 400, "Chirp is too long")
 		return
@@ -51,7 +64,7 @@ func (cfg *apiConfig) handlerPostChirps(w http.ResponseWriter, r *http.Request) 
 
 	chirp, err := cfg.dbQueries.CreateChirp(context.Background(), database.CreateChirpParams{
 		Body: replaceProfaneWords(params.Body),
-		UserID: params.UserID})
+		UserID: userID})
 
 	if err != nil {
 		respondWithError(w, 400, "Coudn't create chirp")
