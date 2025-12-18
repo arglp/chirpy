@@ -25,30 +25,37 @@ func main () {
 	apiCfg.dbQueries = database.New(db)
 	apiCfg.platform = os.Getenv("PLATFORM")
 	apiCfg.secret = os.Getenv("SECRET")
+	apiCfg.polkaKey = os.Getenv("POLKA_KEY")
 
-	sMux := http.NewServeMux()
-	s := http.Server{}
+	mux := http.NewServeMux()
+
+	s := &http.Server{}
 	s.Addr = ":8080"
-	s.Handler = sMux
+	s.Handler = mux
+
 	fileServer := http.FileServer(http.Dir("."))
+	fsHandler := apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer))
 	
-	sMux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", fileServer)))
-	sMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {
+	mux.Handle("/app/", fsHandler)
+
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(200)
 		w.Write([]byte("OK\n"))
 	})
 
-	sMux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
-	sMux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
-	sMux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
-	sMux.HandleFunc("POST /api/chirps", apiCfg.handlerPostChirps)
-	sMux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
-	sMux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirpByID)
-	sMux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
-	sMux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
-	sMux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
-	sMux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateUser)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
+	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
+	mux.HandleFunc("POST /api/users", apiCfg.handlerUsers)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerPostChirps)
+	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirpByID)
+	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
+	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateUser)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handlerDeleteChirp)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerPolkaWebhook)
 
 	err = s.ListenAndServe()
 	if err != nil {
