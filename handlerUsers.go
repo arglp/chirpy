@@ -142,11 +142,13 @@ func (cfg *apiConfig) handlerRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	if refreshToken.RevokedAt.Valid {
 		respondWithError(w, 401, "refresh token revoked")
+		return
 	}
 
 	accessToken, err := auth.MakeJWT(refreshToken.UserID, cfg.secret, time.Hour)
 	if err != nil {
 		respondWithError(w, 401, "something went wrong")
+		return
 	}
 
 	respondWithJson(w, 200, response{Token: accessToken})
@@ -156,10 +158,60 @@ func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
 	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		respondWithError(w, 401, "something went wrong")
+		return
 	}
 	err = cfg.dbQueries.RevokeRefreshToken(context.Background(), token)
 	if err != nil {
 		respondWithError(w, 401, "couldn't find refresh token")
+		return
 	}
 	w.WriteHeader(204)
+}
+
+func (cfg *apiConfig) handlerUpdateUser(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, 400, "something went wrong")
+		return
+	}
+
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, 401, "couldn't find access code")
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, 401, "couldn't hash password")
+		return
+	}
+
+	id, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, 401, "couldn't vaildate access code")
+		return
+	}
+
+	user, err := cfg.dbQueries.SetUserEmailPassword(context.Background(), database.SetUserEmailPasswordParams{
+		Email: params.Email,
+		HashedPassword: hashedPassword,
+		ID: id,
+	})
+
+	if err != nil {
+		respondWithError(w, 401, "couldn't get user")
+		return
+	}
+
+	jsonUser := transcribeUser(user)
+
+	respondWithJson(w, 200, jsonUser)
 }

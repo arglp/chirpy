@@ -48,6 +48,7 @@ func main () {
 	sMux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	sMux.HandleFunc("POST /api/refresh", apiCfg.handlerRefresh)
 	sMux.HandleFunc("POST /api/revoke", apiCfg.handlerRevoke)
+	sMux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateUser)
 
 	err = s.ListenAndServe()
 	if err != nil {
